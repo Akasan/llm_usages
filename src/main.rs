@@ -47,7 +47,7 @@ fn main() -> anyhow::Result<()> {
     }
 
     let all_records = aggregate_by_date_model(all_records);
-    print_table(&all_records);
+    print_table(&all_records, &range);
 
     Ok(())
 }
