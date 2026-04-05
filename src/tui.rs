@@ -16,23 +16,25 @@ use ratatui::Terminal;
 
 use crate::output::{format_tokens, truncate_model};
 use crate::pricing::estimate_cost;
-use crate::types::{TimeRange, UsageRecord};
+use crate::types::{ProjectSummary, TimeRange, UsageRecord};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TabId {
     Detail,
     DailySummary,
+    Projects,
     Projection,
 }
 
 impl TabId {
-    const ALL: [TabId; 3] = [TabId::Detail, TabId::DailySummary, TabId::Projection];
+    const ALL: [TabId; 4] = [TabId::Detail, TabId::DailySummary, TabId::Projects, TabId::Projection];
 
     fn index(self) -> usize {
         match self {
             TabId::Detail => 0,
             TabId::DailySummary => 1,
-            TabId::Projection => 2,
+            TabId::Projects => 2,
+            TabId::Projection => 3,
         }
     }
 
@@ -142,6 +144,16 @@ struct DailySummaryRow {
     est_cost: String,
 }
 
+struct ProjectRow {
+    project: String,
+    providers: Vec<String>,
+    input_tokens: String,
+    output_tokens: String,
+    cache_write: String,
+    cache_read: String,
+    est_cost: String,
+}
+
 struct App {
     active_tab: TabId,
     chart_mode: ChartMode,
@@ -151,18 +163,21 @@ struct App {
     chart_groups: Vec<ChartGroup>,
     model_legend: Vec<(String, Color)>,
     projection_lines: Vec<String>,
+    project_rows: Vec<ProjectRow>,
     detail_scroll: u16,
     daily_scroll: u16,
     projection_scroll: u16,
+    project_scroll: u16,
 }
 
 impl App {
-    fn new(records: &[UsageRecord], range: &TimeRange) -> Self {
+    fn new(records: &[UsageRecord], project_summaries: &[ProjectSummary], range: &TimeRange) -> Self {
         let detail_rows = build_detail_rows(records);
         let summary_footer = build_summary_footer(records);
         let daily_rows = build_daily_rows(records);
         let (chart_groups, model_legend) = build_chart_data(records);
         let projection_lines = build_projection_lines(records, range);
+        let project_rows = build_project_rows(project_summaries);
 
         App {
             active_tab: TabId::Detail,
@@ -173,9 +188,11 @@ impl App {
             chart_groups,
             model_legend,
             projection_lines,
+            project_rows,
             detail_scroll: 0,
             daily_scroll: 0,
             projection_scroll: 0,
+            project_scroll: 0,
         }
     }
 
@@ -183,6 +200,7 @@ impl App {
         match self.active_tab {
             TabId::Detail => &mut self.detail_scroll,
             TabId::DailySummary => &mut self.daily_scroll,
+            TabId::Projects => &mut self.project_scroll,
             TabId::Projection => &mut self.projection_scroll,
         }
     }
@@ -191,6 +209,7 @@ impl App {
         match self.active_tab {
             TabId::Detail => self.detail_rows.len() + self.summary_footer.len() + 1,
             TabId::DailySummary => self.daily_rows.len(),
+            TabId::Projects => self.project_rows.len(),
             TabId::Projection => self.projection_lines.len(),
         }
     }
@@ -388,6 +407,21 @@ fn build_projection_lines(records: &[UsageRecord], range: &TimeRange) -> Vec<Str
     ]
 }
 
+fn build_project_rows(summaries: &[ProjectSummary]) -> Vec<ProjectRow> {
+    summaries
+        .iter()
+        .map(|s| ProjectRow {
+            project: s.display_name.clone(),
+            providers: s.providers.clone(),
+            input_tokens: format_tokens(s.total_input_tokens),
+            output_tokens: format_tokens(s.total_output_tokens),
+            cache_write: format_tokens(s.total_cache_creation_tokens),
+            cache_read: format_tokens(s.total_cache_read_tokens),
+            est_cost: format!("${:.4}", s.total_cost),
+        })
+        .collect()
+}
+
 fn clamp_scroll(scroll: &mut u16, content_len: usize, viewport_height: u16) {
     let max = content_len.saturating_sub(viewport_height as usize) as u16;
     if *scroll > max {
@@ -395,7 +429,7 @@ fn clamp_scroll(scroll: &mut u16, content_len: usize, viewport_height: u16) {
     }
 }
 
-pub fn run_tui(records: &[UsageRecord], range: &TimeRange) -> anyhow::Result<()> {
+pub fn run_tui(records: &[UsageRecord], project_summaries: &[ProjectSummary], range: &TimeRange) -> anyhow::Result<()> {
     if records.is_empty() {
         println!("No usage data found.");
         return Ok(());
@@ -415,7 +449,7 @@ pub fn run_tui(records: &[UsageRecord], range: &TimeRange) -> anyhow::Result<()>
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(records, range);
+    let mut app = App::new(records, project_summaries, range);
 
     loop {
         terminal.draw(|f| draw_ui(f, &mut app))?;
@@ -430,7 +464,8 @@ pub fn run_tui(records: &[UsageRecord], range: &TimeRange) -> anyhow::Result<()>
                 KeyCode::Left | KeyCode::Char('h') => app.prev_tab(),
                 KeyCode::Char('1') => app.active_tab = TabId::Detail,
                 KeyCode::Char('2') => app.active_tab = TabId::DailySummary,
-                KeyCode::Char('3') => app.active_tab = TabId::Projection,
+                KeyCode::Char('3') => app.active_tab = TabId::Projects,
+                KeyCode::Char('4') => app.active_tab = TabId::Projection,
                 KeyCode::Char('t') => app.chart_mode = app.chart_mode.toggle(),
                 KeyCode::Down | KeyCode::Char('j') => app.scroll_down(1),
                 KeyCode::Up | KeyCode::Char('k') => app.scroll_up(1),
@@ -464,7 +499,7 @@ fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
 }
 
 fn draw_tabs(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let titles: Vec<Line> = ["Detail", "Daily Summary", "Projection"]
+    let titles: Vec<Line> = ["Detail", "Daily Summary", "Projects", "Projection"]
         .iter()
         .map(|t| Line::from(*t))
         .collect();
@@ -492,6 +527,7 @@ fn draw_content(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
     match app.active_tab {
         TabId::Detail => draw_detail_tab(f, app, area),
         TabId::DailySummary => draw_daily_tab(f, app, area),
+        TabId::Projects => draw_projects_tab(f, app, area),
         TabId::Projection => draw_projection_tab(f, app, area),
     }
 }
@@ -688,6 +724,65 @@ fn draw_daily_chart(f: &mut ratatui::Frame, app: &App, area: Rect) {
     f.render_widget(legend, chunks[1]);
 }
 
+fn draw_projects_tab(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let header_cells = [
+        "Project",
+        "Providers",
+        "Input Tokens",
+        "Output Tokens",
+        "Cache Write",
+        "Cache Read",
+        "Est. Cost",
+    ]
+    .iter()
+    .map(|h| Cell::from(*h).style(Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)));
+    let header = Row::new(header_cells).height(1);
+
+    let rows: Vec<Row> = app
+        .project_rows
+        .iter()
+        .map(|r| {
+            let mut provider_spans: Vec<Span> = Vec::new();
+            for (i, p) in r.providers.iter().enumerate() {
+                if i > 0 {
+                    provider_spans.push(Span::raw(", "));
+                }
+                provider_spans.push(Span::styled(p.clone(), Style::default().fg(provider_color(p))));
+            }
+            Row::new(vec![
+                Cell::from(r.project.clone()).style(Style::default().fg(Color::White).add_modifier(Modifier::BOLD)),
+                Cell::from(Line::from(provider_spans)),
+                Cell::from(r.input_tokens.clone()),
+                Cell::from(r.output_tokens.clone()),
+                Cell::from(r.cache_write.clone()),
+                Cell::from(r.cache_read.clone()),
+                Cell::from(r.est_cost.clone()),
+            ])
+        })
+        .collect();
+
+    let widths = [
+        Constraint::Length(24),
+        Constraint::Length(16),
+        Constraint::Length(14),
+        Constraint::Length(14),
+        Constraint::Length(14),
+        Constraint::Length(14),
+        Constraint::Length(14),
+    ];
+
+    let table = Table::new(rows, widths)
+        .header(header)
+        .block(Block::default().borders(Borders::ALL).title(" Project Summary (sorted by cost) "))
+        .column_spacing(1);
+
+    let mut state = ratatui::widgets::TableState::default();
+    state.select(None);
+    *state.offset_mut() = app.project_scroll as usize;
+
+    f.render_stateful_widget(table, area, &mut state);
+}
+
 fn draw_projection_tab(f: &mut ratatui::Frame, app: &App, area: Rect) {
     let lines: Vec<Line> = app
         .projection_lines
@@ -727,7 +822,7 @@ fn draw_help_bar(f: &mut ratatui::Frame, area: Rect) {
         Span::raw(":tab  "),
         Span::styled("\u{2191}/\u{2193}", Style::default().fg(Color::Yellow)),
         Span::raw(":scroll  "),
-        Span::styled("1/2/3", Style::default().fg(Color::Yellow)),
+        Span::styled("1/2/3/4", Style::default().fg(Color::Yellow)),
         Span::raw(":jump  "),
         Span::styled("PgUp/PgDn", Style::default().fg(Color::Yellow)),
         Span::raw(":page  "),

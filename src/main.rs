@@ -11,7 +11,7 @@ use std::io::IsTerminal;
 
 use clap::Parser;
 
-use crate::aggregate::aggregate_by_date_model;
+use crate::aggregate::{aggregate_by_date_model, aggregate_by_project};
 use crate::cli::Cli;
 use crate::output::print_table;
 use crate::provider::UsageProvider;
@@ -49,12 +49,24 @@ fn main() -> anyhow::Result<()> {
         }
     }
 
+    // Apply project filter if specified
+    if let Some(ref filter) = cli.project {
+        let filter_lower = filter.to_lowercase();
+        all_records.retain(|r| {
+            r.project
+                .as_ref()
+                .map(|p| p.to_lowercase().contains(&filter_lower))
+                .unwrap_or(false)
+        });
+    }
+
+    let project_summaries = aggregate_by_project(&all_records);
     let all_records = aggregate_by_date_model(all_records);
 
     if std::io::stdout().is_terminal() {
-        tui::run_tui(&all_records, &range)?;
+        tui::run_tui(&all_records, &project_summaries, &range)?;
     } else {
-        print_table(&all_records, &range);
+        print_table(&all_records, &project_summaries, &range);
     }
 
     Ok(())

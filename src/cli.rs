@@ -21,6 +21,10 @@ pub struct Cli {
     /// Target providers (comma-separated: claude,codex,gemini)
     #[arg(short, long)]
     pub provider: Option<String>,
+
+    /// Filter by project name (partial match)
+    #[arg(long)]
+    pub project: Option<String>,
 }
 
 impl Cli {

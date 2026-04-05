@@ -78,6 +78,7 @@ impl UsageProvider for CodexProvider {
             let mut model = String::from("unknown");
             let mut last_token_usage: Option<TokenUsage> = None;
             let mut session_date: Option<NaiveDate> = None;
+            let mut project: Option<String> = None;
 
             for line in content.lines() {
                 let entry: LogLine = match serde_json::from_str(line) {
@@ -95,6 +96,15 @@ impl UsageProvider for CodexProvider {
                     Some(p) => p,
                     None => continue,
                 };
+
+                // Extract project from session_meta cwd
+                if entry.line_type.as_deref() == Some("session_meta") {
+                    if let Some(cwd) = payload.get("cwd").and_then(|v| v.as_str()) {
+                        if !cwd.is_empty() {
+                            project = Some(cwd.to_string());
+                        }
+                    }
+                }
 
                 // Extract model from turn_context
                 if entry.line_type.as_deref() == Some("turn_context") {
@@ -133,6 +143,7 @@ impl UsageProvider for CodexProvider {
                     output_tokens: usage.output_tokens,
                     cache_creation_tokens: 0,
                     cache_read_tokens: usage.cached_input_tokens,
+                    project,
                 });
             }
         }

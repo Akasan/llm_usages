@@ -50,6 +50,16 @@ fn parse_date(ts: &str) -> Option<NaiveDate> {
         .and_then(|d| NaiveDate::parse_from_str(d, "%Y-%m-%d").ok())
 }
 
+/// Read the .project_root file from the session's parent directory
+fn read_project_root(session_path: &std::path::Path) -> Option<String> {
+    let parent = session_path.parent()?;
+    let project_root_file = parent.join(".project_root");
+    fs::read_to_string(project_root_file)
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+}
+
 impl UsageProvider for GeminiProvider {
     fn name(&self) -> &str {
         "Gemini"
@@ -86,6 +96,8 @@ impl UsageProvider for GeminiProvider {
                 Err(_) => continue,
             };
 
+            let project = read_project_root(path);
+
             for msg in &session.messages {
                 if msg.msg_type.as_deref() != Some("gemini") {
                     continue;
@@ -119,6 +131,7 @@ impl UsageProvider for GeminiProvider {
                     output_tokens: tokens.output,
                     cache_creation_tokens: 0,
                     cache_read_tokens: tokens.cached,
+                    project: project.clone(),
                 });
             }
         }
