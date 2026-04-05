@@ -48,20 +48,22 @@ llm_usages -p claude,codex
 
 ## TUI Mode
 
-When run in a terminal, an interactive TUI is displayed with three tabs:
+When run in a terminal, an interactive TUI is displayed with five tabs:
 
 | Tab | Content |
 |-----|---------|
 | **Detail** | Per-provider/date/model usage table with summary footer |
 | **Daily Summary** | Aggregated daily totals + per-model bar chart (cost / tokens) with legend |
+| **Projects** | Per-project aggregated usage and cost |
 | **Projection** | Projected monthly cost based on current usage |
+| **Model Share** | Pie chart showing model-level cost/token share with legend |
 
 ### Key Bindings
 
 | Key | Action |
 |-----|--------|
 | `←/→` or `h/l` | Switch tabs |
-| `1/2/3` | Jump to tab directly |
+| `1-5` | Jump to tab directly |
 | `↑/↓` or `j/k` | Scroll |
 | `PageUp/PageDown` | Scroll 10 lines |
 | `t` | Toggle chart data (cost / tokens) |
