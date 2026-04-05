@@ -4,7 +4,10 @@ mod output;
 mod pricing;
 mod provider;
 mod providers;
+mod tui;
 mod types;
+
+use std::io::IsTerminal;
 
 use clap::Parser;
 
@@ -47,7 +50,12 @@ fn main() -> anyhow::Result<()> {
     }
 
     let all_records = aggregate_by_date_model(all_records);
-    print_table(&all_records);
+
+    if std::io::stdout().is_terminal() {
+        tui::run_tui(&all_records, &range)?;
+    } else {
+        print_table(&all_records, &range);
+    }
 
     Ok(())
 }

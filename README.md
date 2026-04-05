@@ -2,6 +2,8 @@
 
 A Rust CLI tool that displays LLM usage (token counts and estimated costs) from local session logs of Claude Code, Codex CLI, and Gemini CLI. No API keys required.
 
+When run in a terminal, it launches an interactive TUI with tab-based navigation. When piped, it falls back to plain text output.
+
 [Japanese / 日本語](README.ja.md)
 
 ## Data Sources
@@ -44,7 +46,32 @@ llm_usages -p claude,codex
 | `--to <YYYY-MM-DD>` | End date | today |
 | `-p, --provider <LIST>` | Target providers (comma-separated) | claude,codex,gemini |
 
-## Example Output
+## TUI Mode
+
+When run in a terminal, an interactive TUI is displayed with three tabs:
+
+| Tab | Content |
+|-----|---------|
+| **Detail** | Per-provider/date/model usage table with summary footer |
+| **Daily Summary** | Aggregated daily totals + per-model bar chart (cost / tokens) with legend |
+| **Projection** | Projected monthly cost based on current usage |
+
+### Key Bindings
+
+| Key | Action |
+|-----|--------|
+| `←/→` or `h/l` | Switch tabs |
+| `1/2/3` | Jump to tab directly |
+| `↑/↓` or `j/k` | Scroll |
+| `PageUp/PageDown` | Scroll 10 lines |
+| `t` | Toggle chart data (cost / tokens) |
+| `q` or `Esc` | Quit |
+
+### Plain Text Fallback
+
+When piped (e.g. `llm_usages | cat`), the output falls back to plain text tables.
+
+## Example Output (Plain Text)
 
 ```
 ╭──────────┬────────────┬────────────────────┬──────────────┬───────────────┬─────────────┬────────────┬─────────────────╮
