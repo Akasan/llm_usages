@@ -12,6 +12,7 @@ use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Bar, BarChart, BarGroup, Block, Borders, Cell, Paragraph, Row, Table, Tabs};
+use ratatui::widgets::canvas::{Canvas, Points};
 use ratatui::Terminal;
 
 use crate::output::{format_tokens, truncate_model};
@@ -24,10 +25,17 @@ enum TabId {
     DailySummary,
     Projects,
     Projection,
+    ModelShare,
 }
 
 impl TabId {
-    const ALL: [TabId; 4] = [TabId::Detail, TabId::DailySummary, TabId::Projects, TabId::Projection];
+    const ALL: [TabId; 5] = [
+        TabId::Detail,
+        TabId::DailySummary,
+        TabId::Projects,
+        TabId::Projection,
+        TabId::ModelShare,
+    ];
 
     fn index(self) -> usize {
         match self {
@@ -35,6 +43,7 @@ impl TabId {
             TabId::DailySummary => 1,
             TabId::Projects => 2,
             TabId::Projection => 3,
+            TabId::ModelShare => 4,
         }
     }
 
@@ -123,6 +132,13 @@ struct ChartGroup {
     entries: Vec<ChartEntry>,
 }
 
+struct PieSlice {
+    model: String,
+    value: f64,
+    percentage: f64,
+    color: Color,
+}
+
 struct DetailRow {
     provider: String,
     date: String,
@@ -164,10 +180,13 @@ struct App {
     model_legend: Vec<(String, Color)>,
     projection_lines: Vec<String>,
     project_rows: Vec<ProjectRow>,
+    pie_cost: Vec<PieSlice>,
+    pie_tokens: Vec<PieSlice>,
     detail_scroll: u16,
     daily_scroll: u16,
     projection_scroll: u16,
     project_scroll: u16,
+    model_share_scroll: u16,
 }
 
 impl App {
@@ -178,6 +197,7 @@ impl App {
         let (chart_groups, model_legend) = build_chart_data(records);
         let projection_lines = build_projection_lines(records, range);
         let project_rows = build_project_rows(project_summaries);
+        let (pie_cost, pie_tokens) = build_pie_data(records);
 
         App {
             active_tab: TabId::Detail,
@@ -189,10 +209,13 @@ impl App {
             model_legend,
             projection_lines,
             project_rows,
+            pie_cost,
+            pie_tokens,
             detail_scroll: 0,
             daily_scroll: 0,
             projection_scroll: 0,
             project_scroll: 0,
+            model_share_scroll: 0,
         }
     }
 
@@ -202,6 +225,7 @@ impl App {
             TabId::DailySummary => &mut self.daily_scroll,
             TabId::Projects => &mut self.project_scroll,
             TabId::Projection => &mut self.projection_scroll,
+            TabId::ModelShare => &mut self.model_share_scroll,
         }
     }
 
@@ -211,6 +235,7 @@ impl App {
             TabId::DailySummary => self.daily_rows.len(),
             TabId::Projects => self.project_rows.len(),
             TabId::Projection => self.projection_lines.len(),
+            TabId::ModelShare => 0,
         }
     }
 
@@ -422,6 +447,58 @@ fn build_project_rows(summaries: &[ProjectSummary]) -> Vec<ProjectRow> {
         .collect()
 }
 
+fn build_pie_data(records: &[UsageRecord]) -> (Vec<PieSlice>, Vec<PieSlice>) {
+    let mut model_cost: HashMap<String, f64> = HashMap::new();
+    let mut model_tokens: HashMap<String, f64> = HashMap::new();
+
+    for r in records {
+        *model_cost.entry(r.model.clone()).or_default() += estimate_cost(r);
+        *model_tokens.entry(r.model.clone()).or_default() +=
+            (r.input_tokens + r.output_tokens) as f64;
+    }
+
+    let total_cost: f64 = model_cost.values().sum();
+    let total_tokens: f64 = model_tokens.values().sum();
+
+    let mut cost_vec: Vec<(String, f64)> = model_cost.into_iter().collect();
+    cost_vec.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let mut token_vec: Vec<(String, f64)> = model_tokens.into_iter().collect();
+    token_vec.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    let pie_cost: Vec<PieSlice> = cost_vec
+        .iter()
+        .enumerate()
+        .map(|(i, (model, value))| PieSlice {
+            model: truncate_model(model, 24),
+            value: *value,
+            percentage: if total_cost > 0.0 {
+                *value / total_cost * 100.0
+            } else {
+                0.0
+            },
+            color: MODEL_PALETTE[i % MODEL_PALETTE.len()],
+        })
+        .collect();
+
+    let pie_tokens: Vec<PieSlice> = token_vec
+        .iter()
+        .enumerate()
+        .map(|(i, (model, value))| PieSlice {
+            model: truncate_model(model, 24),
+            value: *value,
+            percentage: if total_tokens > 0.0 {
+                *value / total_tokens * 100.0
+            } else {
+                0.0
+            },
+            color: MODEL_PALETTE[i % MODEL_PALETTE.len()],
+        })
+        .collect();
+
+    (pie_cost, pie_tokens)
+}
+
 fn clamp_scroll(scroll: &mut u16, content_len: usize, viewport_height: u16) {
     let max = content_len.saturating_sub(viewport_height as usize) as u16;
     if *scroll > max {
@@ -466,6 +543,7 @@ pub fn run_tui(records: &[UsageRecord], project_summaries: &[ProjectSummary], ra
                 KeyCode::Char('2') => app.active_tab = TabId::DailySummary,
                 KeyCode::Char('3') => app.active_tab = TabId::Projects,
                 KeyCode::Char('4') => app.active_tab = TabId::Projection,
+                KeyCode::Char('5') => app.active_tab = TabId::ModelShare,
                 KeyCode::Char('t') => app.chart_mode = app.chart_mode.toggle(),
                 KeyCode::Down | KeyCode::Char('j') => app.scroll_down(1),
                 KeyCode::Up | KeyCode::Char('k') => app.scroll_up(1),
@@ -499,7 +577,7 @@ fn draw_ui(f: &mut ratatui::Frame, app: &mut App) {
 }
 
 fn draw_tabs(f: &mut ratatui::Frame, app: &App, area: Rect) {
-    let titles: Vec<Line> = ["Detail", "Daily Summary", "Projects", "Projection"]
+    let titles: Vec<Line> = ["Detail", "Daily Summary", "Projects", "Projection", "Model Share"]
         .iter()
         .map(|t| Line::from(*t))
         .collect();
@@ -529,6 +607,7 @@ fn draw_content(f: &mut ratatui::Frame, app: &mut App, area: Rect) {
         TabId::DailySummary => draw_daily_tab(f, app, area),
         TabId::Projects => draw_projects_tab(f, app, area),
         TabId::Projection => draw_projection_tab(f, app, area),
+        TabId::ModelShare => draw_model_share_tab(f, app, area),
     }
 }
 
@@ -814,6 +893,131 @@ fn draw_projection_tab(f: &mut ratatui::Frame, app: &App, area: Rect) {
     f.render_widget(paragraph, area);
 }
 
+fn draw_model_share_tab(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let slices = match app.chart_mode {
+        ChartMode::Cost => &app.pie_cost,
+        ChartMode::Tokens => &app.pie_tokens,
+    };
+
+    if slices.is_empty() {
+        let msg = Paragraph::new("No data available.")
+            .block(Block::default().borders(Borders::ALL).title(" Model Share "));
+        f.render_widget(msg, area);
+        return;
+    }
+
+    // Split: left for pie chart, right for legend
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+        .split(area);
+
+    let pie_area = chunks[0];
+    let legend_area = chunks[1];
+
+    // --- Pie Chart using Canvas ---
+    let title = format!(" {} (t: toggle) ", app.chart_mode.label());
+
+    // Build cumulative angles for slices
+    let mut cumulative_angles: Vec<(f64, f64, Color)> = Vec::new();
+    let mut start_angle = 0.0_f64;
+    for s in slices {
+        let sweep = s.percentage / 100.0 * 360.0;
+        cumulative_angles.push((start_angle, start_angle + sweep, s.color));
+        start_angle += sweep;
+    }
+
+    // Pre-compute points for each slice color
+    let canvas_size = 100.0;
+    let cx = canvas_size / 2.0;
+    let cy = canvas_size / 2.0;
+    let radius = canvas_size / 2.0 - 2.0;
+
+    let mut color_points: HashMap<usize, Vec<(f64, f64)>> = HashMap::new();
+    let step: f64 = 0.5;
+    let mut y: f64 = 0.0;
+    while y <= canvas_size {
+        let mut x: f64 = 0.0;
+        while x <= canvas_size {
+            let dx: f64 = x - cx;
+            let dy: f64 = y - cy;
+            let dist = (dx * dx + dy * dy).sqrt();
+            if dist <= radius {
+                let angle = dy.atan2(dx).to_degrees();
+                let angle = if angle < 0.0 { angle + 360.0 } else { angle };
+                for (i, &(start, end, _)) in cumulative_angles.iter().enumerate() {
+                    if angle >= start && angle < end {
+                        color_points.entry(i).or_default().push((x, y));
+                        break;
+                    }
+                }
+            }
+            x += step;
+        }
+        y += step;
+    }
+
+    let canvas = Canvas::default()
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .x_bounds([0.0, canvas_size])
+        .y_bounds([0.0, canvas_size])
+        .paint(move |ctx| {
+            for (i, &(_, _, color)) in cumulative_angles.iter().enumerate() {
+                if let Some(pts) = color_points.get(&i) {
+                    let coords: Vec<(f64, f64)> = pts.clone();
+                    ctx.draw(&Points {
+                        coords: &coords,
+                        color,
+                    });
+                }
+            }
+        });
+
+    f.render_widget(canvas, pie_area);
+
+    // --- Legend ---
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(Span::styled(
+        " Model Share Legend",
+        Style::default()
+            .fg(Color::Yellow)
+            .add_modifier(Modifier::BOLD),
+    )));
+    lines.push(Line::from(""));
+
+    for s in slices {
+        let value_str = match app.chart_mode {
+            ChartMode::Cost => format!("${:.4}", s.value),
+            ChartMode::Tokens => format_tokens(s.value as u64),
+        };
+        lines.push(Line::from(vec![
+            Span::styled(
+                "\u{25a0} ",
+                Style::default().fg(s.color),
+            ),
+            Span::styled(
+                format!("{:<24}", s.model),
+                Style::default().fg(Color::White),
+            ),
+            Span::styled(
+                format!(" {:>5.1}%", s.percentage),
+                Style::default()
+                    .fg(Color::Yellow)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("  {}", value_str),
+                Style::default().fg(Color::Gray),
+            ),
+        ]));
+    }
+
+    let legend = Paragraph::new(lines)
+        .block(Block::default().borders(Borders::ALL));
+
+    f.render_widget(legend, legend_area);
+}
+
 fn draw_help_bar(f: &mut ratatui::Frame, area: Rect) {
     let help = Line::from(vec![
         Span::styled("q", Style::default().fg(Color::Yellow)),
@@ -822,7 +1026,7 @@ fn draw_help_bar(f: &mut ratatui::Frame, area: Rect) {
         Span::raw(":tab  "),
         Span::styled("\u{2191}/\u{2193}", Style::default().fg(Color::Yellow)),
         Span::raw(":scroll  "),
-        Span::styled("1/2/3/4", Style::default().fg(Color::Yellow)),
+        Span::styled("1-5", Style::default().fg(Color::Yellow)),
         Span::raw(":jump  "),
         Span::styled("PgUp/PgDn", Style::default().fg(Color::Yellow)),
         Span::raw(":page  "),
