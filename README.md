@@ -17,6 +17,14 @@ When run in a terminal, it launches an interactive TUI with tab-based navigation
 ## Installation
 
 ```bash
+cargo install llm_usages
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/Akasan/llm_usages.git
+cd llm_usages
 cargo build --release
 ```
 
