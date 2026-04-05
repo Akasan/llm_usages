@@ -53,7 +53,7 @@ When run in a terminal, an interactive TUI is displayed with three tabs:
 | Tab | Content |
 |-----|---------|
 | **Detail** | Per-provider/date/model usage table with summary footer |
-| **Daily Summary** | Aggregated daily totals |
+| **Daily Summary** | Aggregated daily totals + per-model bar chart (cost / tokens) with legend |
 | **Projection** | Projected monthly cost based on current usage |
 
 ### Key Bindings
@@ -64,6 +64,7 @@ When run in a terminal, an interactive TUI is displayed with three tabs:
 | `1/2/3` | Jump to tab directly |
 | `↑/↓` or `j/k` | Scroll |
 | `PageUp/PageDown` | Scroll 10 lines |
+| `t` | Toggle chart data (cost / tokens) |
 | `q` or `Esc` | Quit |
 
 ### Plain Text Fallback

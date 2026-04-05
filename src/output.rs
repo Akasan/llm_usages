@@ -15,6 +15,29 @@ fn colorize_provider(provider: &str) -> String {
     }
 }
 
+fn colorize_model(model: &str, display: &str) -> String {
+    let m = model.to_lowercase();
+    // High-end → Yellow
+    if m.contains("opus")
+        || m.contains("-pro")
+        || m.starts_with("gpt-5")
+        || m.starts_with("gpt-4-turbo")
+        || (m.starts_with("gpt-4") && !m.starts_with("gpt-4o"))
+        || (m.starts_with("o3") && !m.starts_with("o3-mini"))
+        || (m.starts_with("o1") && !m.starts_with("o1-mini"))
+    {
+        format!("\x1b[33m{}\x1b[0m", display)
+    // Mid-tier → Blue
+    } else if m.contains("sonnet")
+        || (m.starts_with("gpt-4o") && !m.contains("mini"))
+    {
+        format!("\x1b[34m{}\x1b[0m", display)
+    // Lightweight → Dark Gray
+    } else {
+        format!("\x1b[90m{}\x1b[0m", display)
+    }
+}
+
 #[derive(Tabled)]
 struct Row {
     #[tabled(rename = "Provider")]
@@ -82,10 +105,11 @@ pub fn print_table(records: &[UsageRecord], range: &TimeRange) {
         .iter()
         .map(|r| {
             let cost = estimate_cost(r);
+            let truncated = truncate_model(&r.model, 24);
             Row {
                 provider: colorize_provider(&r.provider),
                 date: r.date.to_string(),
-                model: truncate_model(&r.model, 24),
+                model: colorize_model(&r.model, &truncated),
                 input_tokens: format_tokens(r.input_tokens),
                 output_tokens: format_tokens(r.output_tokens),
                 cache_creation: format_tokens(r.cache_creation_tokens),

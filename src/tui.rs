@@ -1,4 +1,4 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::io;
 
 use chrono::{Datelike, NaiveDate};
@@ -11,7 +11,7 @@ use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Cell, Paragraph, Row, Table, Tabs};
+use ratatui::widgets::{Bar, BarChart, BarGroup, Block, Borders, Cell, Paragraph, Row, Table, Tabs};
 use ratatui::Terminal;
 
 use crate::output::{format_tokens, truncate_model};
@@ -41,6 +41,28 @@ impl TabId {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ChartMode {
+    Cost,
+    Tokens,
+}
+
+impl ChartMode {
+    fn toggle(self) -> Self {
+        match self {
+            ChartMode::Cost => ChartMode::Tokens,
+            ChartMode::Tokens => ChartMode::Cost,
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            ChartMode::Cost => "Est. Cost (USD)",
+            ChartMode::Tokens => "Total Tokens (Input + Output)",
+        }
+    }
+}
+
 fn provider_color(provider: &str) -> Color {
     match provider {
         "Claude" => Color::Magenta,
@@ -50,10 +72,60 @@ fn provider_color(provider: &str) -> Color {
     }
 }
 
+fn model_color(model: &str) -> Color {
+    let m = model.to_lowercase();
+    // High-end
+    if m.contains("opus")
+        || m.contains("-pro")
+        || m.starts_with("gpt-5")
+        || m.starts_with("gpt-4-turbo")
+        || (m.starts_with("gpt-4") && !m.starts_with("gpt-4o"))
+        || (m.starts_with("o3") && !m.starts_with("o3-mini"))
+        || (m.starts_with("o1") && !m.starts_with("o1-mini"))
+    {
+        Color::Yellow
+    // Mid-tier
+    } else if m.contains("sonnet")
+        || (m.starts_with("gpt-4o") && !m.contains("mini"))
+    {
+        Color::Blue
+    // Lightweight
+    } else {
+        Color::DarkGray
+    }
+}
+
+const MODEL_PALETTE: &[Color] = &[
+    Color::LightRed,
+    Color::LightGreen,
+    Color::LightYellow,
+    Color::LightBlue,
+    Color::LightMagenta,
+    Color::LightCyan,
+    Color::Red,
+    Color::Green,
+    Color::Yellow,
+    Color::Blue,
+    Color::Magenta,
+    Color::Cyan,
+];
+
+struct ChartEntry {
+    model_index: usize,
+    cost: f64,
+    total_tokens: u64,
+}
+
+struct ChartGroup {
+    date_short: String,
+    entries: Vec<ChartEntry>,
+}
+
 struct DetailRow {
     provider: String,
     date: String,
     model: String,
+    model_raw: String,
     input_tokens: String,
     output_tokens: String,
     cache_write: String,
@@ -72,9 +144,12 @@ struct DailySummaryRow {
 
 struct App {
     active_tab: TabId,
+    chart_mode: ChartMode,
     detail_rows: Vec<DetailRow>,
     summary_footer: Vec<String>,
     daily_rows: Vec<DailySummaryRow>,
+    chart_groups: Vec<ChartGroup>,
+    model_legend: Vec<(String, Color)>,
     projection_lines: Vec<String>,
     detail_scroll: u16,
     daily_scroll: u16,
@@ -86,13 +161,17 @@ impl App {
         let detail_rows = build_detail_rows(records);
         let summary_footer = build_summary_footer(records);
         let daily_rows = build_daily_rows(records);
+        let (chart_groups, model_legend) = build_chart_data(records);
         let projection_lines = build_projection_lines(records, range);
 
         App {
             active_tab: TabId::Detail,
+            chart_mode: ChartMode::Cost,
             detail_rows,
             summary_footer,
             daily_rows,
+            chart_groups,
+            model_legend,
             projection_lines,
             detail_scroll: 0,
             daily_scroll: 0,
@@ -146,6 +225,7 @@ fn build_detail_rows(records: &[UsageRecord]) -> Vec<DetailRow> {
                 provider: r.provider.clone(),
                 date: r.date.to_string(),
                 model: truncate_model(&r.model, 24),
+                model_raw: r.model.clone(),
                 input_tokens: format_tokens(r.input_tokens),
                 output_tokens: format_tokens(r.output_tokens),
                 cache_write: format_tokens(r.cache_creation_tokens),
@@ -197,6 +277,56 @@ fn build_daily_rows(records: &[UsageRecord]) -> Vec<DailySummaryRow> {
             est_cost: format!("${:.4}", cost),
         })
         .collect()
+}
+
+fn build_chart_data(records: &[UsageRecord]) -> (Vec<ChartGroup>, Vec<(String, Color)>) {
+    let mut model_order: Vec<String> = Vec::new();
+    let mut model_map: HashMap<String, usize> = HashMap::new();
+    let mut daily: BTreeMap<NaiveDate, BTreeMap<usize, (f64, u64)>> = BTreeMap::new();
+
+    for r in records {
+        let idx = if let Some(&i) = model_map.get(&r.model) {
+            i
+        } else {
+            let i = model_order.len();
+            model_map.insert(r.model.clone(), i);
+            model_order.push(r.model.clone());
+            i
+        };
+
+        let day = daily.entry(r.date).or_default();
+        let entry = day.entry(idx).or_insert((0.0, 0));
+        entry.0 += estimate_cost(r);
+        entry.1 += r.input_tokens + r.output_tokens;
+    }
+
+    let groups = daily
+        .iter()
+        .map(|(date, models)| {
+            let date_short = format!("{:02}/{:02}", date.month(), date.day());
+            let mut entries: Vec<ChartEntry> = models
+                .iter()
+                .map(|(&idx, &(cost, tokens))| ChartEntry {
+                    model_index: idx,
+                    cost,
+                    total_tokens: tokens,
+                })
+                .collect();
+            entries.sort_by_key(|e| e.model_index);
+            ChartGroup { date_short, entries }
+        })
+        .collect();
+
+    let legend = model_order
+        .iter()
+        .enumerate()
+        .map(|(i, model)| {
+            let color = MODEL_PALETTE[i % MODEL_PALETTE.len()];
+            (truncate_model(model, 24), color)
+        })
+        .collect();
+
+    (groups, legend)
 }
 
 fn build_projection_lines(records: &[UsageRecord], range: &TimeRange) -> Vec<String> {
@@ -301,6 +431,7 @@ pub fn run_tui(records: &[UsageRecord], range: &TimeRange) -> anyhow::Result<()>
                 KeyCode::Char('1') => app.active_tab = TabId::Detail,
                 KeyCode::Char('2') => app.active_tab = TabId::DailySummary,
                 KeyCode::Char('3') => app.active_tab = TabId::Projection,
+                KeyCode::Char('t') => app.chart_mode = app.chart_mode.toggle(),
                 KeyCode::Down | KeyCode::Char('j') => app.scroll_down(1),
                 KeyCode::Up | KeyCode::Char('k') => app.scroll_up(1),
                 KeyCode::PageDown => app.scroll_down(10),
@@ -384,11 +515,12 @@ fn draw_detail_tab(f: &mut ratatui::Frame, app: &App, area: Rect) {
         .detail_rows
         .iter()
         .map(|r| {
-            let color = provider_color(&r.provider);
+            let pcolor = provider_color(&r.provider);
+            let mcolor = model_color(&r.model_raw);
             Row::new(vec![
-                Cell::from(r.provider.clone()).style(Style::default().fg(color)),
+                Cell::from(r.provider.clone()).style(Style::default().fg(pcolor)),
                 Cell::from(r.date.clone()),
-                Cell::from(r.model.clone()),
+                Cell::from(r.model.clone()).style(Style::default().fg(mcolor)),
                 Cell::from(r.input_tokens.clone()),
                 Cell::from(r.output_tokens.clone()),
                 Cell::from(r.cache_write.clone()),
@@ -436,6 +568,15 @@ fn draw_detail_tab(f: &mut ratatui::Frame, app: &App, area: Rect) {
 }
 
 fn draw_daily_tab(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Percentage(40), // table
+            Constraint::Percentage(60), // chart + legend
+        ])
+        .split(area);
+
+    // --- Table ---
     let header_cells = [
         "Date",
         "Input Tokens",
@@ -481,7 +622,70 @@ fn draw_daily_tab(f: &mut ratatui::Frame, app: &App, area: Rect) {
     state.select(None);
     *state.offset_mut() = app.daily_scroll as usize;
 
-    f.render_stateful_widget(table, area, &mut state);
+    f.render_stateful_widget(table, chunks[0], &mut state);
+
+    // --- Bar Chart + Legend ---
+    draw_daily_chart(f, app, chunks[1]);
+}
+
+fn draw_daily_chart(f: &mut ratatui::Frame, app: &App, area: Rect) {
+    let legend_height = if app.model_legend.len() > 6 { 2 } else { 1 };
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(5),
+            Constraint::Length(legend_height),
+        ])
+        .split(area);
+
+    let title = format!(" {} (t: toggle) ", app.chart_mode.label());
+    let mut chart = BarChart::default()
+        .block(Block::default().borders(Borders::ALL).title(title))
+        .bar_width(3)
+        .bar_gap(0)
+        .group_gap(2)
+        .value_style(
+            Style::default()
+                .fg(Color::White)
+                .add_modifier(Modifier::BOLD),
+        );
+
+    for group in &app.chart_groups {
+        let bars: Vec<Bar> = group
+            .entries
+            .iter()
+            .map(|e| {
+                let value = match app.chart_mode {
+                    ChartMode::Cost => (e.cost * 100.0).round() as u64,
+                    ChartMode::Tokens => e.total_tokens / 1000,
+                };
+                let color = MODEL_PALETTE[e.model_index % MODEL_PALETTE.len()];
+                Bar::default()
+                    .value(value)
+                    .style(Style::default().fg(color))
+            })
+            .collect();
+
+        let bar_group = BarGroup::default()
+            .label(Line::from(group.date_short.clone()))
+            .bars(&bars);
+        chart = chart.data(bar_group);
+    }
+
+    f.render_widget(chart, chunks[0]);
+
+    // --- Legend ---
+    let mut spans: Vec<Span> = Vec::new();
+    for (i, (name, color)) in app.model_legend.iter().enumerate() {
+        if i > 0 {
+            spans.push(Span::raw("  "));
+        }
+        spans.push(Span::styled("\u{25a0} ", Style::default().fg(*color)));
+        spans.push(Span::styled(name.clone(), Style::default().fg(Color::Gray)));
+    }
+    let legend = Paragraph::new(Line::from(spans))
+        .style(Style::default().fg(Color::DarkGray));
+    f.render_widget(legend, chunks[1]);
 }
 
 fn draw_projection_tab(f: &mut ratatui::Frame, app: &App, area: Rect) {
@@ -526,7 +730,9 @@ fn draw_help_bar(f: &mut ratatui::Frame, area: Rect) {
         Span::styled("1/2/3", Style::default().fg(Color::Yellow)),
         Span::raw(":jump  "),
         Span::styled("PgUp/PgDn", Style::default().fg(Color::Yellow)),
-        Span::raw(":page"),
+        Span::raw(":page  "),
+        Span::styled("t", Style::default().fg(Color::Yellow)),
+        Span::raw(":chart"),
     ]);
 
     let paragraph = Paragraph::new(help)
