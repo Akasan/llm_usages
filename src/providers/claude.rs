@@ -94,7 +94,7 @@ impl UsageProvider for ClaudeProvider {
             // Extract project: prefer cwd from log lines, fallback to directory name
             let mut project: Option<String> = None;
 
-            // Deduplicate by message.id: keep last occurrence (final streaming state)
+            // Deduplicate by message.id: keep first occurrence (matches ccusage behaviour)
             let mut msg_map: HashMap<String, (NaiveDate, String, Usage)> = HashMap::new();
 
             for line in content.lines() {
@@ -142,7 +142,7 @@ impl UsageProvider for ClaudeProvider {
                 }
 
                 if let Some(id) = msg.id {
-                    msg_map.insert(id, (date, model, usage));
+                    msg_map.entry(id).or_insert((date, model, usage));
                 } else {
                     records.push(UsageRecord {
                         provider: "Claude".to_string(),

@@ -7,9 +7,14 @@ struct ModelPrice {
 }
 
 const PRICES: &[ModelPrice] = &[
-    // Anthropic (Claude Code)
+    // Anthropic (Claude Code) – more-specific prefixes first
+    ModelPrice { prefix: "claude-opus-4-5", input_per_mtok: 5.0, output_per_mtok: 25.0 },
+    ModelPrice { prefix: "claude-opus-4-6", input_per_mtok: 5.0, output_per_mtok: 25.0 },
     ModelPrice { prefix: "claude-opus-4", input_per_mtok: 15.0, output_per_mtok: 75.0 },
+    ModelPrice { prefix: "claude-sonnet-4-5", input_per_mtok: 3.0, output_per_mtok: 15.0 },
+    ModelPrice { prefix: "claude-sonnet-4-6", input_per_mtok: 3.0, output_per_mtok: 15.0 },
     ModelPrice { prefix: "claude-sonnet-4", input_per_mtok: 3.0, output_per_mtok: 15.0 },
+    ModelPrice { prefix: "claude-haiku-4-5", input_per_mtok: 1.0, output_per_mtok: 5.0 },
     ModelPrice { prefix: "claude-haiku-4", input_per_mtok: 0.80, output_per_mtok: 4.0 },
     ModelPrice { prefix: "claude-3-5-sonnet", input_per_mtok: 3.0, output_per_mtok: 15.0 },
     ModelPrice { prefix: "claude-3-5-haiku", input_per_mtok: 0.80, output_per_mtok: 4.0 },
