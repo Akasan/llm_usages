@@ -6,10 +6,10 @@ use crate::pricing::estimate_cost;
 use crate::types::{ProjectSummary, UsageRecord};
 
 pub fn aggregate_by_date_model(records: Vec<UsageRecord>) -> Vec<UsageRecord> {
-    let mut map: HashMap<(String, NaiveDate, String, Option<String>), UsageRecord> = HashMap::new();
+    let mut map: HashMap<(String, NaiveDate, String), UsageRecord> = HashMap::new();
 
     for r in records {
-        let key = (r.provider.clone(), r.date, r.model.clone(), r.project.clone());
+        let key = (r.provider.clone(), r.date, r.model.clone());
         let entry = map.entry(key).or_insert_with(|| UsageRecord {
             provider: r.provider.clone(),
             date: r.date,
@@ -18,7 +18,7 @@ pub fn aggregate_by_date_model(records: Vec<UsageRecord>) -> Vec<UsageRecord> {
             output_tokens: 0,
             cache_creation_tokens: 0,
             cache_read_tokens: 0,
-            project: r.project.clone(),
+            project: None,
         });
         entry.input_tokens += r.input_tokens;
         entry.output_tokens += r.output_tokens;
