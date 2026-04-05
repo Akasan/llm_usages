@@ -1,50 +1,48 @@
 # llm_usages
 
-A Rust CLI tool that displays LLM usage (token counts and estimated costs) from local session logs of Claude Code, Codex CLI, and Gemini CLI. No API keys required.
+Claude Code、Codex CLI、Gemini CLIのローカルセッションログからLLM利用量（トークン数・推定コスト）を表示するRust CLIツール。APIキー不要。
 
-[Japanese / 日本語](README.ja.md)
+## データソース
 
-## Data Sources
-
-| CLI | Log Path | Format |
-|-----|----------|--------|
+| CLI | ログパス | 形式 |
+|-----|---------|------|
 | Claude Code | `~/.claude/projects/*/*.jsonl` | JSONL |
 | Codex CLI | `~/.codex/sessions/YYYY/MM/DD/*.jsonl` | JSONL |
 | Gemini CLI | `~/.gemini/tmp/*/chats/session-*.json` | JSON |
 
-## Installation
+## インストール
 
 ```bash
 cargo build --release
 ```
 
-## Usage
+## 使い方
 
 ```bash
-# Show usage for the past 7 days (default)
+# 過去7日分の利用量を表示（デフォルト）
 llm_usages
 
-# Show usage for the past 30 days
+# 過去30日分を表示
 llm_usages --days 30
 
-# Specify a date range
+# 日付範囲を指定
 llm_usages --from 2026-03-01 --to 2026-04-05
 
-# Filter by provider
+# 特定プロバイダのみ
 llm_usages -p claude
 llm_usages -p claude,codex
 ```
 
-## Options
+## オプション
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-d, --days <N>` | Query the past N days | 7 |
-| `--from <YYYY-MM-DD>` | Start date (overrides `--days`) | - |
-| `--to <YYYY-MM-DD>` | End date | today |
-| `-p, --provider <LIST>` | Target providers (comma-separated) | claude,codex,gemini |
+| オプション | 説明 | デフォルト |
+|-----------|------|-----------|
+| `-d, --days <N>` | 過去N日分を取得 | 7 |
+| `--from <YYYY-MM-DD>` | 開始日（`--days`より優先） | - |
+| `--to <YYYY-MM-DD>` | 終了日 | 今日 |
+| `-p, --provider <LIST>` | 対象プロバイダ（カンマ区切り） | claude,codex,gemini |
 
-## Example Output
+## 出力例
 
 ```
 ╭──────────┬────────────┬────────────────────┬──────────────┬───────────────┬─────────────┬────────────┬─────────────────╮
@@ -62,10 +60,10 @@ Summary:
   Total Est. Cost:     $11.2408
 ```
 
-## Supported Providers
+## 対応プロバイダ
 
-| Provider | Log Source |
-|----------|-----------|
+| プロバイダ | ログ読み取り元 |
+|-----------|--------------|
 | Claude Code | `~/.claude/projects/` |
 | Codex CLI | `~/.codex/sessions/` |
 | Gemini CLI | `~/.gemini/tmp/` |
