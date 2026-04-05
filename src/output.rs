@@ -51,7 +51,7 @@ struct DailySummaryRow {
     est_cost: String,
 }
 
-fn truncate_model(model: &str, max_len: usize) -> String {
+pub(crate) fn truncate_model(model: &str, max_len: usize) -> String {
     if model.len() <= max_len {
         model.to_string()
     } else {
@@ -59,7 +59,7 @@ fn truncate_model(model: &str, max_len: usize) -> String {
     }
 }
 
-fn format_tokens(n: u64) -> String {
+pub(crate) fn format_tokens(n: u64) -> String {
     let s = n.to_string();
     let mut result = String::new();
     for (i, c) in s.chars().rev().enumerate() {
