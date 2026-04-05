@@ -4,7 +4,7 @@ use chrono::{Datelike, NaiveDate};
 use tabled::{Table, Tabled, settings::Style};
 
 use crate::pricing::estimate_cost;
-use crate::types::{TimeRange, UsageRecord};
+use crate::types::{ProjectSummary, TimeRange, UsageRecord};
 
 fn colorize_provider(provider: &str) -> String {
     match provider {
@@ -74,6 +74,24 @@ struct DailySummaryRow {
     est_cost: String,
 }
 
+#[derive(Tabled)]
+struct ProjectRow {
+    #[tabled(rename = "Project")]
+    project: String,
+    #[tabled(rename = "Providers")]
+    providers: String,
+    #[tabled(rename = "Input Tokens")]
+    input_tokens: String,
+    #[tabled(rename = "Output Tokens")]
+    output_tokens: String,
+    #[tabled(rename = "Cache Write")]
+    cache_creation: String,
+    #[tabled(rename = "Cache Read")]
+    cache_read: String,
+    #[tabled(rename = "Est. Cost (USD)")]
+    est_cost: String,
+}
+
 pub(crate) fn truncate_model(model: &str, max_len: usize) -> String {
     if model.len() <= max_len {
         model.to_string()
@@ -94,7 +112,7 @@ pub(crate) fn format_tokens(n: u64) -> String {
     result.chars().rev().collect()
 }
 
-pub fn print_table(records: &[UsageRecord], range: &TimeRange) {
+pub fn print_table(records: &[UsageRecord], project_summaries: &[ProjectSummary], range: &TimeRange) {
     if records.is_empty() {
         println!("No usage data found.");
         return;
@@ -139,6 +157,9 @@ pub fn print_table(records: &[UsageRecord], range: &TimeRange) {
     // Daily summary
     print_daily_summary(records);
 
+    // Project summary
+    print_project_summary(project_summaries);
+
     // Monthly projection
     print_projection(records, range);
 }
@@ -169,6 +190,29 @@ fn print_daily_summary(records: &[UsageRecord]) {
         .collect();
 
     println!("\nDaily Summary:");
+    let table = Table::new(&rows).with(Style::rounded()).to_string();
+    println!("{table}");
+}
+
+fn print_project_summary(summaries: &[ProjectSummary]) {
+    if summaries.is_empty() {
+        return;
+    }
+
+    let rows: Vec<ProjectRow> = summaries
+        .iter()
+        .map(|s| ProjectRow {
+            project: s.display_name.clone(),
+            providers: s.providers.join(", "),
+            input_tokens: format_tokens(s.total_input_tokens),
+            output_tokens: format_tokens(s.total_output_tokens),
+            cache_creation: format_tokens(s.total_cache_creation_tokens),
+            cache_read: format_tokens(s.total_cache_read_tokens),
+            est_cost: format!("${:.4}", s.total_cost),
+        })
+        .collect();
+
+    println!("\nProject Summary:");
     let table = Table::new(&rows).with(Style::rounded()).to_string();
     println!("{table}");
 }
